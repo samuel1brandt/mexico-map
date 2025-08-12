@@ -3,30 +3,19 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Mexico Trip Map — Photo‑Rich (Leaflet + Google Sheet)</title>
+  <title>Photo‑Rich Trip Map — Clean Reset</title>
   <!-- Leaflet + plugins -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
   <!-- GLightbox (gallery) -->
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/glightbox/dist/css/glightbox.min.css" />
-  <!-- App styles -->
   <style>
-    :root{
-      --bg:#f8fafc; /* light */
-      --panel:#ffffff;
-      --text:#0f172a;
-      --muted:#64748b;
-      --primary:#0ea5e9;
-      --border:#e2e8f0;
-      --chip:#e7f5ff;
-    }
+    :root{ --bg:#f8fafc; --panel:#ffffff; --text:#0f172a; --muted:#64748b; --primary:#0ea5e9; --border:#e2e8f0; --chip:#e7f5ff; }
     *{box-sizing:border-box}
     html,body{height:100%;margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Noto Sans,sans-serif;color:var(--text);background:var(--bg)}
     #app{display:grid;grid-template-columns:360px 1fr;grid-template-rows:100vh}
     @media (max-width:960px){#app{grid-template-columns:1fr;grid-template-rows:auto 80vh}}
-
-    /* Sidebar */
     .sidebar{background:var(--panel);border-right:1px solid var(--border);padding:14px;overflow:auto}
     .brand{display:flex;align-items:center;gap:10px;margin-bottom:8px}
     .brand h1{font-size:18px;margin:0}
@@ -46,15 +35,9 @@
     .card h3{margin:0 0 6px 0;font-size:14px}
     .meta{font-size:12px;color:var(--muted)}
     .actions{display:flex;gap:6px;margin-top:6px}
-
-    /* Map */
     #map{width:100%;height:100%}
-
-    /* Marker (color dot) */
     .pin{display:flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:50%;color:#fff;font-weight:700;box-shadow:0 2px 6px rgba(0,0,0,.25);border:2px solid #fff}
     .pin.big{transform:scale(1.1)}
-
-    /* Popup */
     .popup{min-width:260px}
     .popup h3{margin:0 0 6px 0;font-size:16px}
     .chipsline{display:flex;gap:6px;margin:6px 0}
@@ -64,55 +47,37 @@
     .pop-actions{display:flex;gap:8px;margin-top:8px}
     .pop-actions a{flex:1;text-align:center;display:inline-block;padding:8px 10px;border-radius:10px;text-decoration:none;background:#e2e8f0;color:#0f172a;font-size:13px}
     .pop-actions a.primary{background:var(--primary);color:#fff}
-
-    /* Loader */
     .loader{padding:10px;font-size:13px;color:var(--muted)}
+    .debug{font-size:11px;color:var(--muted);margin-top:8px;white-space:pre-wrap}
+    .warn{color:#b45309}
+    .error{color:#b91c1c}
   </style>
 </head>
 <body>
 <div id="app">
   <aside class="sidebar">
-    <div class="brand">
-      <h1>Mexico Trip Map</h1>
-    </div>
-    <div class="small">Photo‑rich pins from a Google Sheet. Edit the sheet → refresh the page.</div>
+    <div class="brand"><h1>Photo‑Rich Trip Map</h1></div>
+    <div class="small">Edit your Google Sheet → refresh this page. This reset supports a direct CSV link or Sheet ID+tab.</div>
 
     <div class="controls">
-      <div class="field">
-        <label>Search</label>
-        <input id="q" type="search" placeholder="Find places (title, city, notes)…"/>
-      </div>
+      <div class="field"><label>Search</label><input id="q" type="search" placeholder="Find places (title, city, notes)…"/></div>
       <div class="row">
-        <div class="field">
-          <label>Phase</label>
-          <select id="phase" multiple size="4"></select>
-        </div>
-        <div class="field">
-          <label>Category</label>
-          <select id="category" multiple size="6"></select>
-        </div>
+        <div class="field"><label>Phase</label><select id="phase" multiple size="4"></select></div>
+        <div class="field"><label>Category</label><select id="category" multiple size="6"></select></div>
       </div>
       <div class="row date-row">
-        <div class="field">
-          <label>From</label>
-          <input id="from" type="date" />
-        </div>
-        <div class="field">
-          <label>To</label>
-          <input id="to" type="date" />
-        </div>
+        <div class="field"><label>From</label><input id="from" type="date" /></div>
+        <div class="field"><label>To</label><input id="to" type="date" /></div>
       </div>
       <div class="row">
-        <div class="field">
-          <label>Status</label>
-          <select id="status" multiple size="3"></select>
-        </div>
-        <div class="field">
-          <label>Actions</label>
+        <div class="field"><label>Status</label><select id="status" multiple size="3"></select></div>
+        <div class="field"><label>Actions</label>
           <div class="row">
+            <button id="reload" class="btn secondary">Reload data</button>
             <button id="clear" class="btn secondary">Clear filters</button>
             <button id="export" class="btn">Export</button>
           </div>
+          <div id="debug" class="debug"></div>
         </div>
       </div>
       <div class="counts" id="counts">Loading…</div>
@@ -120,9 +85,7 @@
 
     <div class="list" id="list"></div>
   </aside>
-  <main>
-    <div id="map"></div>
-  </main>
+  <main><div id="map"></div></main>
 </div>
 
 <!-- Libraries -->
@@ -132,305 +95,251 @@
 <script src="https://cdn.jsdelivr.net/npm/fuse.js@6.6.2"></script>
 <script src="https://cdn.jsdelivr.net/npm/glightbox/dist/js/glightbox.min.js"></script>
 <script src="https://unpkg.com/tokml@0.4.0/tokml.js"></script>
-
 <script>
-// =====================
-//  CONFIG — EDIT ME
-// =====================
+// ==========================================
+//  CONFIG — FILL *ONE* OF THE PLACEHOLDERS
+// ==========================================
 const CONFIG = {
-  SHEET_ID: '1tIfwY7YqOXIZ-rSFuXL0KedjKkfmo9S0fp1NEo70TVE', // <- your Sheet ID
-  SHEET_TAB: 'https://docs.google.com/spreadsheets/d/e/2PACX-1vSFLpA5UrQ3lfiR8fHaxRWOFnQzrIt7P1rg8ancYvnxvC8OxYsZJWhF8-i5zp-eGM6hcU7VhTi1AFcN/pub?gid=0&single=true&output=csv', // <- tab name
+  // OPTION A: paste your **published CSV link** here (recommended)
+  CSV_URL: 'https://docs.google.com/spreadsheets/d/e/2PACX-1vSFLpA5UrQ3lfiR8fHaxRWOFnQzrIt7P1rg8ancYvnxvC8OxYsZJWhF8-i5zp-eGM6hcU7VhTi1AFcN/pub?gid=0&single=true&output=csv',
+
+  // OPTION B: or use your Sheet ID + Tab name (leave CSV_URL empty)
+  SHEET_ID: 'PASTE_SHEET_ID_HERE',
+  SHEET_TAB: 'Itinerary',
+
+  // Map defaults
   FALLBACK_CENTER: [19.4326, -99.1332], // Mexico City
   FALLBACK_ZOOM: 5
 };
 
-const CATEGORY_COLORS = {
-  ruin:'#8b5cf6', museum:'#10b981', market:'#84cc16', food:'#ef4444', bar_cafe:'#f59e0b', neighborhood:'#3b82f6',
-  nature:'#22c55e', cenote:'#06b6d4', transit:'#9ca3af', stay:'#0ea5e9', tour:'#d946ef', event:'#f97316'
+// Field synonyms (case-insensitive) so mild header changes still work
+const FIELD_MAP = {
+  id:['id','slug'],
+  date:['date','when'],
+  phase:['phase','region','leg'],
+  city:['city','town'],
+  title:['title','name','place'],
+  category:['category','type'],
+  lat:['lat','latitude'],
+  lng:['lng','lon','long','longitude'],
+  short_desc:['short_desc','desc','description','blurb'],
+  tips:['tips','note','notes'],
+  image_urls:['image_urls','images','photos','image'],
+  image_credits:['image_credits','credits','photo_credits'],
+  directions_url:['directions_url','directions','gmap','maps_url'],
+  priority:['priority','prio','star'],
+  status:['status','state']
 };
 
-// Tiny utility
-const $ = sel => document.querySelector(sel);
-const h = (tag, attrs={}, children=[]) => { const el=document.createElement(tag); for(const k in attrs){
-  if(k==='class') el.className=attrs[k];
-  else if(k==='html') el.innerHTML=attrs[k];
-  else el.setAttribute(k, attrs[k]);
-} (Array.isArray(children)?children:[children]).filter(Boolean).forEach(c=> el.appendChild(typeof c==='string'?document.createTextNode(c):c)); return el };
+const REQUIRED = ['id','title','lat','lng'];
 
-function csvURL(){
-  const u = `https://docs.google.com/spreadsheets/d/${CONFIG.SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(CONFIG.SHEET_TAB)}&_=${Date.now()}`;
-  return u;
+const CATEGORY_COLORS = { ruin:'#8b5cf6', museum:'#10b981', market:'#84cc16', food:'#ef4444', bar_cafe:'#f59e0b', neighborhood:'#3b82f6', nature:'#22c55e', cenote:'#06b6d4', transit:'#9ca3af', stay:'#0ea5e9', tour:'#d946ef', event:'#f97316' };
+
+const $ = sel => document.querySelector(sel);
+const h = (tag, attrs={}, children=[]) => { const el=document.createElement(tag); for(const k in attrs){ if(k==='class') el.className=attrs[k]; else if(k==='html') el.innerHTML=attrs[k]; else el.setAttribute(k, attrs[k]); } (Array.isArray(children)?children:[children]).filter(Boolean).forEach(c=> el.appendChild(typeof c==='string'?document.createTextNode(c):c)); return el };
+
+function buildCSVUrl(){
+  if (CONFIG.CSV_URL && CONFIG.CSV_URL.includes('/pub?') && CONFIG.CSV_URL.includes('output=csv')){
+    return CONFIG.CSV_URL + (CONFIG.CSV_URL.includes('?')?'&':'?') + '_=' + Date.now();
+  }
+  if (!CONFIG.CSV_URL && CONFIG.SHEET_ID){
+    return `https://docs.google.com/spreadsheets/d/${CONFIG.SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(CONFIG.SHEET_TAB)}&_=${Date.now()}`;
+  }
+  return '';
 }
 
-// Global state
 let RAW_ROWS = [];
-let FEATURES = []; // GeoJSON-like features used for map + list
+let FEATURES = [];
 let MAP, CLUSTER, LIGHTBOX, FUSE;
-
-const loader = h('div',{class:'loader',id:'loader',html:'Fetching itinerary…'});
-$('#list').appendChild(loader);
+let STATS = { rows:0, plotted:0, skipped:0, swapped:0, fixedDec:0, headerWarnings:[], errors:[] };
 
 init();
+
+function logDebug(){
+  const {rows,plotted,skipped,swapped,headerWarnings,errors} = STATS;
+  const lines = [
+    `CSV rows: ${rows}`,
+    `Plotted: ${plotted}`,
+    `Skipped (no/invalid coords): ${skipped}`,
+    `Auto‑swapped (lat↔lng): ${swapped}`,
+    `Decimal fixes (/10): ${STATS.fixedDec}`,
+    headerWarnings.length? `\nHeader warnings:\n- ${headerWarnings.join('\n- ')}` : '',
+    errors.length? `\nErrors:\n- ${errors.join('\n- ')}` : ''
+  ].filter(Boolean).join('\n');
+  $('#debug').textContent = lines;
+}
 
 async function init(){
   // Map
   MAP = L.map('map', {zoomControl:true}).setView(CONFIG.FALLBACK_CENTER, CONFIG.FALLBACK_ZOOM);
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '&copy; OpenStreetMap contributors'
-  }).addTo(MAP);
-  CLUSTER = L.markerClusterGroup();
-  MAP.addLayer(CLUSTER);
-
-  // Lightbox
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '&copy; OpenStreetMap contributors' }).addTo(MAP);
+  CLUSTER = L.markerClusterGroup(); MAP.addLayer(CLUSTER);
   LIGHTBOX = GLightbox({selector:'.glightbox'});
 
-  // Fetch data
+  $('#reload').addEventListener('click', ()=> loadData());
+  $('#clear').addEventListener('click', ()=>{ $('#q').value=''; ['#phase','#category','#status'].forEach(sel=> [...$(sel).options].forEach(o=>o.selected=false)); $('#from').value=''; $('#to').value=''; render(FEATURES); });
+  $('#export').addEventListener('click', ()=> doExport());
+  $('#q').addEventListener('input', debounce(()=> render(FEATURES), 200));
+  ;['#phase','#category','#status','#from','#to'].forEach(sel=> $(sel).addEventListener('change', ()=> render(FEATURES)));
+
+  await loadData();
+}
+
+async function loadData(){
+  $('#counts').textContent = 'Loading…';
+  $('#list').innerHTML = '';
+  STATS = { rows:0, plotted:0, skipped:0, swapped:0, headerWarnings:[], errors:[] };
+  logDebug();
+
+  const url = buildCSVUrl();
+  if (!url){ STATS.errors.push('CONFIG: Please paste your published CSV URL into CONFIG.CSV_URL (or set SHEET_ID + SHEET_TAB).'); logDebug(); return; }
+
   try {
-    await fetchCSV();
-  } catch(e){
-    console.warn('CSV load failed, using fallback', e);
-    RAW_ROWS = fallbackRows();
-  }
-
-  FEATURES = rowsToFeatures(RAW_ROWS);
-  buildFilters(FEATURES);
-  buildSearch(FEATURES);
-  render(FEATURES);
-
-  // if deep link ?id=xyz focus it
-  const params = new URLSearchParams(location.search);
-  const want = params.get('id');
-  if (want){
-    const f = FEATURES.find(x=> (x.properties.id||'').toLowerCase()===want.toLowerCase());
-    if (f){
-      const m = f._marker; if(m){ MAP.setView(m.getLatLng(), 13); m.fire('click'); }
-    }
-  }
-}
-
-function fetchCSV(){
-  return new Promise((resolve,reject)=>{
-    Papa.parse(csvURL(), {
-      download:true, header:true, skipEmptyLines:true,
-      complete: res => { RAW_ROWS = res.data; resolve(); },
-      error: err => reject(err)
+    const res = await new Promise((resolve,reject)=>{
+      Papa.parse(url, { download:true, header:true, skipEmptyLines:true, complete: r=>resolve(r), error: e=>reject(e) });
     });
-  });
+    RAW_ROWS = res.data;
+  } catch(err){
+    STATS.errors.push('Failed to fetch/parse CSV: ' + err);
+    logDebug(); return;
+  }
+
+  STATS.rows = RAW_ROWS.length;
+  FEATURES = rowsToFeatures(RAW_ROWS);
+  buildFilters(FEATURES); buildSearch(FEATURES); render(FEATURES);
+
+  // Deep link
+  const want = new URLSearchParams(location.search).get('id');
+  if (want){ const f = FEATURES.find(x=> (x.properties.id||'').toLowerCase()===want.toLowerCase()); if (f){ const m=f._marker; if(m){ MAP.setView(m.getLatLng(), 13); m.fire('click'); } } }
 }
+
+function canonKeyMap(headers){
+  const lower = headers.map(h=> String(h||'').trim().toLowerCase());
+  const map = {}; // canon -> actual header
+  for (const canon in FIELD_MAP){
+    for (const cand of FIELD_MAP[canon]){
+      const idx = lower.indexOf(String(cand).toLowerCase());
+      if (idx !== -1){ map[canon] = headers[idx]; break; }
+    }
+    if (!map[canon]){ /* not fatal for non-required */ }
+  }
+  const missing = REQUIRED.filter(k => !map[k]);
+  if (missing.length){ STATS.headerWarnings.push('Missing expected columns: ' + missing.join(', ') + '. Fill these headers exactly, or add synonyms to FIELD_MAP.'); }
+  return map;
+}
+
+function toNum(v){
+  if (v == null) return NaN;
+  return parseFloat(String(v)
+    .trim()
+    .replace(/\u2212/g, '-')     // Unicode minus
+    .replace(/,/g, '.')            // decimal comma
+    .replace(/[^0-9+\-\.]/g, '') // strip stray chars
+  );
+}
+
+function inMexico(lat, lng){ return lat>=5 && lat<=35 && lng>=-120 && lng<=-80; }
 
 function rowsToFeatures(rows){
   const feats = [];
+  if (!rows || !rows.length){ return feats; }
+  const headers = Object.keys(rows[0]||{});
+  const keymap = canonKeyMap(headers);
+
   for (const r of rows){
-    const lat = parseFloat(r.lat), lng = parseFloat(r.lng);
-    if (Number.isNaN(lat) || Number.isNaN(lng)) continue; // require coords
-    const cat = (r.category||'').trim();
+    const g = k => r[keymap[k]||k];
+    let lat = toNum(g('lat'));
+    let lng = toNum(g('lng'));
+
+    if (!isFinite(lat) || !isFinite(lng)) { STATS.skipped++; continue; }
+
+    // Fix missing decimal like 194.361 -> 19.4361 ; -991.332 -> -99.1332
+    if (Math.abs(lat) > 90 && Math.abs(lat) < 900) { lat = lat / 10; STATS.fixedDec++; }
+    if (Math.abs(lng) > 180 && Math.abs(lng) < 1800) { lng = lng / 10; STATS.fixedDec++; }
+
+    // extra swap checks when one looks valid and the other not
+    if (Math.abs(lat) > 90 && Math.abs(lng) <= 90) { const t=lat; lat=lng; lng=t; STATS.swapped++; }
+    if (Math.abs(lat) <= 90 && Math.abs(lng) > 180) { const t=lat; lat=lng; lng=t; STATS.swapped++; }
+
+    // auto-swap if looks flipped according to Mexico bounds
+    if (!inMexico(lat,lng) && inMexico(lng,lat)){ const t=lat; lat=lng; lng=t; STATS.swapped++; }
+
+    // final validity guard
+    if (Math.abs(lat) > 90 || Math.abs(lng) > 180) { STATS.skipped++; continue; }
+
+    const cat = String(g('category')||'').trim();
     const color = CATEGORY_COLORS[cat] || '#3b82f6';
-    const pri = (r.priority||'').toString().trim();
+    const pri = String(g('priority')||'').trim();
     const isBig = (pri==='1' || pri==='2');
-    const imgs = (r.image_urls||'').split(/\s*,\s*/).filter(Boolean);
-    const credits = (r.image_credits||'').split(/\s*,\s*/).filter(Boolean);
+    const imgs = String(g('image_urls')||'').split(/\s*,\s*/).filter(Boolean);
+    const credits = String(g('image_credits')||'').split(/\s*,\s*/).filter(Boolean);
 
-    const f = {
-      type:'Feature',
-      geometry:{type:'Point', coordinates:[lng,lat]},
-      properties:{
-        id: (r.id||'').trim(),
-        date: (r.date||'').trim(),
-        phase: (r.phase||'').trim(),
-        city: (r.city||'').trim(),
-        title: (r.title||'').trim(),
-        category: cat,
-        short_desc: (r.short_desc||'').trim(),
-        tips: (r.tips||'').trim(),
-        directions_url: (r.directions_url||'').trim(),
-        priority: pri,
-        status: (r.status||'planned').trim() || 'planned',
-        images: imgs,
-        credits: credits
-      }
-    };
+    const f = { type:'Feature', geometry:{type:'Point', coordinates:[lng,lat]}, properties:{
+      id:String(g('id')||'').trim(), date:String(g('date')||'').trim(), phase:String(g('phase')||'').trim(), city:String(g('city')||'').trim(), title:String(g('title')||'').trim(), category:cat, short_desc:String(g('short_desc')||'').trim(), tips:String(g('tips')||'').trim(), directions_url:String(g('directions_url')||'').trim(), priority:pri, status:String(g('status')||'planned').trim()||'planned', images:imgs, credits:credits } };
 
-    // marker
+    if (!f.properties.id || !f.properties.title){ STATS.skipped++; continue; }
+
     const icon = L.divIcon({className:'', html:`<div class="pin ${isBig?'big':''}" style="background:${color}" title="${f.properties.title}">•</div>`});
     const marker = L.marker([lat,lng], {icon});
     marker.bindPopup(buildPopupHTML(f), {className:'popup'});
     CLUSTER.addLayer(marker);
     f._marker = marker;
-
     feats.push(f);
   }
-  // Fit bounds
-  setTimeout(()=>{
-    if (feats.length){
-      const group = L.featureGroup(feats.map(f=>f._marker));
-      MAP.fitBounds(group.getBounds().pad(0.15));
-    }
-  }, 0);
+
+  setTimeout(()=>{ if (feats.length){ const group = L.featureGroup(feats.map(f=>f._marker)); MAP.fitBounds(group.getBounds().pad(0.15)); } }, 0);
+  STATS.plotted = feats.length; logDebug();
   return feats;
 }
 
 function buildPopupHTML(f){
   const p = f.properties;
   const chips = [p.phase, p.category, p.status].filter(Boolean).map(x=>`<span class="chip">${escapeHtml(x)}</span>`).join('');
-  const imgs = (p.images||[]).map((url, idx)=>{
-    const cap = (p.credits && p.credits[idx]) ? ` — ${escapeHtml(p.credits[idx])}` : '';
-    const gid = `g${p.id||p.title}`;
-    return `<a href="${url}" class="glightbox" data-gallery="${gid}" data-title="${escapeHtml(p.title)}${cap}"><img loading="lazy" src="${url}" alt="${escapeHtml(p.title)}"></a>`
-  }).join('');
-
+  const imgs = (p.images||[]).map((url, idx)=>{ const cap = (p.credits && p.credits[idx]) ? ` — ${escapeHtml(p.credits[idx])}` : ''; const gid = `g${p.id||p.title}`; return `<a href="${url}" class="glightbox" data-gallery="${gid}" data-title="${escapeHtml(p.title)}${cap}"><img loading="lazy" src="${url}" alt="${escapeHtml(p.title)}"></a>` }).join('');
   const dirBtn = p.directions_url ? `<a class="primary" target="_blank" rel="noopener" href="${p.directions_url}">Directions</a>` : '';
-  const linkBtn = `<a href="${location.pathname}?id=${encodeURIComponent((p.id||'').toLowerCase())}" target="_self">Link</a>`;
-
-  const html = `
-    <div>
-      <h3>${escapeHtml(p.title||'Untitled')}</h3>
-      <div class="chipsline">${chips}</div>
-      ${p.date?`<div class="meta">${escapeHtml(p.date)} — ${escapeHtml(p.city||'')}</div>`:''}
-      ${p.short_desc?`<div class="meta">${escapeHtml(p.short_desc)}</div>`:''}
-      ${p.tips?`<div class="meta"><em>${escapeHtml(p.tips)}</em></div>`:''}
-      ${p.images && p.images.length?`<div class="thumbs">${imgs}</div>`:''}
-      <div class="pop-actions">${dirBtn}${linkBtn}</div>
-    </div>
-  `;
-  return html;
+  const linkBtn = p.id ? `<a href="${location.pathname}?id=${encodeURIComponent(String(p.id).toLowerCase())}" target="_self">Link</a>` : '';
+  return `<div><h3>${escapeHtml(p.title||'Untitled')}</h3><div class="chipsline">${chips}</div>${p.date?`<div class="meta">${escapeHtml(p.date)} — ${escapeHtml(p.city||'')}</div>`:''}${p.short_desc?`<div class="meta">${escapeHtml(p.short_desc)}</div>`:''}${p.tips?`<div class="meta"><em>${escapeHtml(p.tips)}</em></div>`:''}${p.images && p.images.length?`<div class="thumbs">${imgs}</div>`:''}<div class="pop-actions">${dirBtn}${linkBtn}</div></div>`;
 }
 
 function buildFilters(feats){
   const phases = uniq(feats.map(f=>f.properties.phase).filter(Boolean)).sort();
   const cats = uniq(feats.map(f=>f.properties.category).filter(Boolean)).sort();
   const statuses = uniq(feats.map(f=>f.properties.status).filter(Boolean)).sort();
-
-  fillMultiSelect($('#phase'), phases);
-  fillMultiSelect($('#category'), cats);
-  fillMultiSelect($('#status'), statuses);
-
-  $('#clear').addEventListener('click', ()=>{
-    $('#q').value='';
-    [...$('#phase').options].forEach(o=>o.selected=false);
-    [...$('#category').options].forEach(o=>o.selected=false);
-    [...$('#status').options].forEach(o=>o.selected=false);
-    $('#from').value='';$('#to').value='';
-    render(FEATURES);
-  });
-
-  $('#export').addEventListener('click', ()=> doExport());
-  $('#q').addEventListener('input', debounce(()=> render(FEATURES), 200));
-  $('#phase').addEventListener('change', ()=> render(FEATURES));
-  $('#category').addEventListener('change', ()=> render(FEATURES));
-  $('#status').addEventListener('change', ()=> render(FEATURES));
-  $('#from').addEventListener('change', ()=> render(FEATURES));
-  $('#to').addEventListener('change', ()=> render(FEATURES));
+  fillMultiSelect($('#phase'), phases); fillMultiSelect($('#category'), cats); fillMultiSelect($('#status'), statuses);
 }
 
-function buildSearch(feats){
-  FUSE = new Fuse(feats.map(f=>({
-    id: f.properties.id,
-    title: f.properties.title,
-    city: f.properties.city,
-    short_desc: f.properties.short_desc
-  })), {keys:['title','city','short_desc'], threshold:0.4});
-}
+function buildSearch(feats){ FUSE = new Fuse(feats.map(f=>({ id:f.properties.id, title:f.properties.title, city:f.properties.city, short_desc:f.properties.short_desc })), {keys:['title','city','short_desc'], threshold:0.4}); }
 
-function currentFilters(){
-  const getSel = sel => [...$(sel).selectedOptions].map(o=>o.value);
-  return {
-    q: ($('#q').value||'').trim(),
-    phases: getSel('#phase'),
-    cats: getSel('#category'),
-    stats: getSel('#status'),
-    from: $('#from').value? new Date($('#from').value): null,
-    to: $('#to').value? new Date($('#to').value): null
-  };
-}
+function currentFilters(){ const getSel = sel => [...$(sel).selectedOptions].map(o=>o.value); return { q:($('#q').value||'').trim(), phases:getSel('#phase'), cats:getSel('#category'), stats:getSel('#status'), from:$('#from').value? new Date($('#from').value): null, to:$('#to').value? new Date($('#to').value): null }; }
 
 function render(all){
-  const F = currentFilters();
-  // filter
-  let arr = all.slice();
-  if (F.q){
-    const res = FUSE.search(F.q).map(x=>x.item.id);
-    arr = arr.filter(f=> res.includes(f.properties.id));
-  }
-  if (F.phases.length) arr = arr.filter(f=> F.phases.includes(f.properties.phase));
-  if (F.cats.length) arr = arr.filter(f=> F.cats.includes(f.properties.category));
-  if (F.stats.length) arr = arr.filter(f=> F.stats.includes(f.properties.status));
-  if (F.from) arr = arr.filter(f=> f.properties.date && new Date(f.properties.date)>=F.from);
-  if (F.to) arr = arr.filter(f=> f.properties.date && new Date(f.properties.date)<=F.to);
-
-  // map markers
-  CLUSTER.clearLayers();
-  arr.forEach(f=> f._marker && CLUSTER.addLayer(f._marker));
-
-  // list
-  const list = $('#list');
-  list.innerHTML='';
-  if (!arr.length){ list.appendChild(h('div',{class:'loader',html:'No results. Adjust filters.'})); }
-  arr.sort((a,b)=> (a.properties.date||'') < (b.properties.date||'') ? -1: 1);
-  arr.forEach(f=> list.appendChild(renderCard(f)) );
-
+  const F = currentFilters(); let arr = all.slice();
+  if (F.q){ const res = FUSE.search(F.q).map(x=>x.item.id); arr = arr.filter(f=> res.includes(f.properties.id)); }
+  if (F.phases.length) arr = arr.filter(f=> F.phases.includes(f.properties.phase)); if (F.cats.length) arr = arr.filter(f=> F.cats.includes(f.properties.category)); if (F.stats.length) arr = arr.filter(f=> F.stats.includes(f.properties.status)); if (F.from) arr = arr.filter(f=> f.properties.date && new Date(f.properties.date)>=F.from); if (F.to) arr = arr.filter(f=> f.properties.date && new Date(f.properties.date)<=F.to);
+  CLUSTER.clearLayers(); arr.forEach(f=> f._marker && CLUSTER.addLayer(f._marker));
+  const list = $('#list'); list.innerHTML=''; if (!arr.length){ list.appendChild(h('div',{class:'loader',html:'No results. Adjust filters.'})); }
+  arr.sort((a,b)=> (a.properties.date||'') < (b.properties.date||'') ? -1: 1); arr.forEach(f=> list.appendChild(renderCard(f)) );
   $('#counts').textContent = `${arr.length} result${arr.length===1?'':'s'} (of ${all.length})`;
 }
 
 function renderCard(f){
-  const p = f.properties;
-  const chips = [p.phase,p.category,p.status].filter(Boolean).map(x=>h('span',{class:'chip'},x));
-  const card = h('div',{class:'card'});
-  const title = h('h3',{}, p.title || 'Untitled');
-  const meta = h('div',{class:'meta'}, `${p.date? p.date+ ' — ':''}${p.city||''}`);
-  const actions = h('div',{class:'actions'});
-  const btnFocus = h('button',{class:'btn secondary'},'Focus');
-  btnFocus.addEventListener('click', ()=>{ const m=f._marker; if(m){ MAP.setView(m.getLatLng(), 14); m.fire('click'); }});
-  const btnLink = h('button',{class:'btn secondary'},'Copy link');
-  btnLink.addEventListener('click', ()=>{
-    const url = location.origin + location.pathname + '?id=' + encodeURIComponent((p.id||'').toLowerCase());
-    navigator.clipboard.writeText(url); btnLink.textContent='Copied'; setTimeout(()=>btnLink.textContent='Copy link',1200);
-  });
-  actions.append(btnFocus, btnLink);
-
-  card.append(title, meta, h('div',{class:'chips'},chips), actions);
-  return card;
+  const p = f.properties; const chips = [p.phase,p.category,p.status].filter(Boolean).map(x=>h('span',{class:'chip'},x));
+  const card = h('div',{class:'card'}); const title = h('h3',{}, p.title || 'Untitled'); const meta = h('div',{class:'meta'}, `${p.date? p.date+ ' — ':''}${p.city||''}`);
+  const actions = h('div',{class:'actions'}); const btnFocus = h('button',{class:'btn secondary'},'Focus'); btnFocus.addEventListener('click', ()=>{ const m=f._marker; if(m){ MAP.setView(m.getLatLng(), 14); m.fire('click'); }});
+  const btnLink = h('button',{class:'btn secondary'},'Copy link'); btnLink.addEventListener('click', ()=>{ const url = location.origin + location.pathname + '?id=' + encodeURIComponent((p.id||'').toLowerCase()); navigator.clipboard.writeText(url); btnLink.textContent='Copied'; setTimeout(()=>btnLink.textContent='Copy link',1200); });
+  actions.append(btnFocus, btnLink); card.append(title, meta, h('div',{class:'chips'},chips), actions); return card;
 }
 
 function doExport(){
-  const F = currentFilters();
-  let arr = FEATURES.slice();
-  if (F.phases.length) arr = arr.filter(f=> F.phases.includes(f.properties.phase));
-  if (F.cats.length) arr = arr.filter(f=> F.cats.includes(f.properties.category));
-  if (F.stats.length) arr = arr.filter(f=> F.stats.includes(f.properties.status));
-  if (F.from) arr = arr.filter(f=> f.properties.date && new Date(f.properties.date)>=F.from);
-  if (F.to) arr = arr.filter(f=> f.properties.date && new Date(f.properties.date)<=F.to);
-
-  const geojson = {type:'FeatureCollection', features: arr.map(f=>({type:'Feature', geometry:f.geometry, properties:f.properties}))};
-  const kml = tokml(geojson, {name: 'title', description: 'short_desc'});
-
-  // Two downloads
-  download('trip.geojson', JSON.stringify(geojson,null,2));
-  download('trip.kml', kml);
+  const F = currentFilters(); let arr = FEATURES.slice();
+  if (F.phases.length) arr = arr.filter(f=> F.phases.includes(f.properties.phase)); if (F.cats.length) arr = arr.filter(f=> F.cats.includes(f.properties.category)); if (F.stats.length) arr = arr.filter(f=> F.stats.includes(f.properties.status)); if (F.from) arr = arr.filter(f=> f.properties.date && new Date(f.properties.date)>=F.from); if (F.to) arr = arr.filter(f=> f.properties.date && new Date(f.properties.date)<=F.to);
+  const geojson = {type:'FeatureCollection', features: arr.map(f=>({type:'Feature', geometry:f.geometry, properties:f.properties}))}; const kml = tokml(geojson, {name: 'title', description: 'short_desc'});
+  download('trip.geojson', JSON.stringify(geojson,null,2)); download('trip.kml', kml);
 }
 
-function download(filename, text){
-  const a = document.createElement('a');
-  a.setAttribute('href', 'data:text/plain;charset=utf-8,' + encodeURIComponent(text));
-  a.setAttribute('download', filename);
-  a.style.display='none';
-  document.body.appendChild(a); a.click(); document.body.removeChild(a);
-}
-
-function fillMultiSelect(sel, values){
-  sel.innerHTML='';
-  values.forEach(v=> sel.appendChild(h('option',{value:v},v)));
-}
-
-function uniq(arr){ return [...new Set(arr)]; }
-function debounce(fn,ms){ let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a),ms); } }
-function escapeHtml(s){ return (s||'').replace(/[&<>"']/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#039;"}[c])); }
-
-function fallbackRows(){
-  // Minimal sample so the app still loads if CSV is unavailable
-  return [
-    {id:'sample-teotihuacan',date:'2025-11-14',phase:'Mexico City',city:'Mexico City',title:'Teotihuacán Archaeological Zone',category:'ruin',lat:'19.6925',lng:'-98.8433',short_desc:'Sample fallback pin. Replace with your sheet.',tips:'Go early.',image_urls:'https://upload.wikimedia.org/wikipedia/commons/e/e9/Teotihuacan_Piramide_del_Sol.jpg',image_credits:'Diego Delso / Wikimedia',directions_url:'',priority:'2',status:'planned'}
-  ];
-}
+function download(filename, text){ const a = document.createElement('a'); a.setAttribute('href', 'data:text/plain;charset=utf-8,' + encodeURIComponent(text)); a.setAttribute('download', filename); a.style.display='none'; document.body.appendChild(a); a.click(); document.body.removeChild(a); }
+function fillMultiSelect(sel, values){ sel.innerHTML=''; values.forEach(v=> sel.appendChild(h('option',{value:v},v))); }
+function uniq(arr){ return [...new Set(arr)]; } function debounce(fn,ms){ let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a),ms); } } function escapeHtml(s){ return (s||'').replace(/[&<>"']/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#039;"}[c])); }
 </script>
 </body>
 </html>
