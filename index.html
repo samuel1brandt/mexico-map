@@ -142,7 +142,8 @@ const FIELD_MAP = {
   status:['status','state']
 };
 
-const REQUIRED = ['id','title','lat','lng'];
+// Lat/lng are now optional — we can parse them from Google Maps links
+const REQUIRED = ['id','title'];
 
 const CATEGORY_COLORS = { ruin:'#8b5cf6', museum:'#10b981', market:'#84cc16', food:'#ef4444', bar_cafe:'#f59e0b', neighborhood:'#3b82f6', nature:'#22c55e', cenote:'#06b6d4', transit:'#9ca3af', stay:'#0ea5e9', tour:'#d946ef', event:'#f97316' };
 
@@ -165,7 +166,7 @@ let RAW_ROWS = [];
 let FEATURES = [];
 let DATE_IDX = {};
 let MAP, CLUSTER, LIGHTBOX, FUSE;
-let STATS = { rows:0, plotted:0, skipped:0, swapped:0, fixedDec:0, headerWarnings:[], errors:[] };
+let STATS = { rows:0, plotted:0, skipped:0, swapped:0, fixedDec:0, urlParsed:0, headerWarnings:[], errors:[] };
 
 init();
 
@@ -177,6 +178,7 @@ function logDebug(){
     `Skipped (no/invalid coords): ${skipped}`,
     `Auto‑swapped (lat↔lng): ${swapped}`,
     `Decimal fixes (/10): ${STATS.fixedDec}`,
+    `Parsed from URL: ${STATS.urlParsed}`,
     headerWarnings.length? `\nHeader warnings:\n- ${headerWarnings.join('\n- ')}` : '',
     errors.length? `\nErrors:\n- ${errors.join('\n- ')}` : ''
   ].filter(Boolean).join('\n');
@@ -200,12 +202,15 @@ async function init(){
 
   const pinToggle = document.querySelector('#togglePins');
   if (pinToggle){ document.body.classList.toggle('largepins', pinToggle.checked); pinToggle.addEventListener('change', (e)=> document.body.classList.toggle('largepins', e.target.checked)); }
+
+  // run tiny self-tests after init
+  runSelfTests();
 }
 
 async function loadData(){
   $('#counts').textContent = 'Loading…';
   $('#list').innerHTML = '';
-  STATS = { rows:0, plotted:0, skipped:0, swapped:0, headerWarnings:[], errors:[] };
+  STATS = { rows:0, plotted:0, skipped:0, swapped:0, fixedDec:0, urlParsed:0, headerWarnings:[], errors:[] };
   logDebug();
 
   const url = buildCSVUrl();
@@ -219,11 +224,8 @@ async function loadData(){
     computeDateOrder(RAW_ROWS);
   } catch(err){
     STATS.errors.push('Failed to fetch/parse CSV: ' + err);
-    logDebug(); return;
-  }
-  } catch(err){
-    STATS.errors.push('Failed to fetch/parse CSV: ' + err);
-    logDebug(); return;
+    logDebug();
+    return;
   }
 
   STATS.rows = RAW_ROWS.length;
@@ -262,6 +264,37 @@ function toNum(v){
 
 function inMexico(lat, lng){ return lat>=5 && lat<=35 && lng>=-120 && lng<=-80; }
 
+// Try to extract lat,lng from a Google Maps URL (supports @lat,lng and common params)
+function parseCoordsFromUrl(u){
+  if (!u) return null;
+  try {
+    // 1) @lat,lng in the path
+    const atIdx = u.indexOf('@');
+    if (atIdx !== -1){
+      const seg = u.slice(atIdx+1);
+      const parts = seg.split(',');
+      const la = parseFloat(parts[0]);
+      const ln = parseFloat(parts[1]);
+      if (isFinite(la) && isFinite(ln)) return [la, ln];
+    }
+    // 2) Query parameters like ?query=lat,lng or &destination=lat,lng
+    const url = new URL(u);
+    const keys = ['query','destination','q','ll','center'];
+    for (const k of keys){
+      const val = url.searchParams.get(k);
+      if (val){
+        const pair = val.split(',');
+        if (pair.length >= 2){
+          const la = parseFloat(pair[0]);
+          const ln = parseFloat(pair[1]);
+          if (isFinite(la) && isFinite(ln)) return [la, ln];
+        }
+      }
+    }
+  } catch(e) { /* ignore parse errors */ }
+  return null;
+}
+
 function computeDateOrder(rows){
   const dates = [...new Set(rows.map(r => String((r.date||'').trim())).filter(Boolean))].sort();
   DATE_IDX = {}; dates.forEach((d,i)=> DATE_IDX[d] = i+1);
@@ -277,6 +310,12 @@ function rowsToFeatures(rows){
     const g = k => r[keymap[k]||k];
     let lat = toNum(g('lat'));
     let lng = toNum(g('lng'));
+
+    // If coords missing, try to parse from Google Maps URL
+    if (!isFinite(lat) || !isFinite(lng)){
+      const parsed = parseCoordsFromUrl(String(g('directions_url')||'').trim());
+      if (parsed){ lat = parsed[0]; lng = parsed[1]; STATS.urlParsed++; }
+    }
 
     if (!isFinite(lat) || !isFinite(lng)) { STATS.skipped++; continue; }
 
@@ -298,8 +337,14 @@ function rowsToFeatures(rows){
     const color = CATEGORY_COLORS[cat] || '#3b82f6';
     const pri = String(g('priority')||'').trim();
     const isBig = (pri==='1' || pri==='2');
-    const imgs = String(g('image_urls')||'').split(/\s*,\s*/).filter(Boolean);
-    const credits = String(g('image_credits')||'').split(/\s*,\s*/).filter(Boolean);
+    const imgs = String(g('image_urls')||'')
+                  .split(/[\n;,|]+/)
+                  .map(s => s.trim())
+                  .filter(Boolean);
+    const credits = String(g('image_credits')||'')
+                  .split(/[\n;,|]+/)
+                  .map(s => s.trim())
+                  .filter(Boolean);
 
     const f = { type:'Feature', geometry:{type:'Point', coordinates:[lng,lat]}, properties:{
       id:String(g('id')||'').trim(), date:String(g('date')||'').trim(), phase:String(g('phase')||'').trim(), city:String(g('city')||'').trim(), title:String(g('title')||'').trim(), category:cat, short_desc:String(g('short_desc')||'').trim(), tips:String(g('tips')||'').trim(), directions_url:String(g('directions_url')||'').trim(), priority:pri, status:String(g('status')||'planned').trim()||'planned', images:imgs, credits:credits } };
@@ -328,7 +373,7 @@ function buildPopupHTML(f){
   const p = f.properties;
   const chips = [p.phase, p.category, p.status].filter(Boolean).map(x=>`<span class="chip">${escapeHtml(x)}</span>`).join('');
   const imgs = (p.images||[]).map((url, idx)=>{ const cap = (p.credits && p.credits[idx]) ? ` — ${escapeHtml(p.credits[idx])}` : ''; const gid = `g${p.id||p.title}`; return `<a href="${url}" class="glightbox" data-gallery="${gid}" data-title="${escapeHtml(p.title)}${cap}"><img loading="lazy" src="${url}" alt="${escapeHtml(p.title)}"></a>` }).join('');
-  const dirBtn = p.directions_url ? `<a class="primary" target="_blank" rel="noopener" href="${p.directions_url}">Directions</a>` : '';
+  const dirBtn = p.directions_url ? `<a class="primary" target="_blank" rel="noopener" href="${p.directions_url}">Open in Google Maps</a>` : '';
   const linkBtn = p.id ? `<a href="${location.pathname}?id=${encodeURIComponent(String(p.id).toLowerCase())}" target="_self">Link</a>` : '';
   return `<div><h3>${escapeHtml(p.title||'Untitled')}</h3><div class="chipsline">${chips}</div>${p.date?`<div class="meta">${escapeHtml(p.date)} — ${escapeHtml(p.city||'')}</div>`:''}${p.short_desc?`<div class="meta">${escapeHtml(p.short_desc)}</div>`:''}${p.tips?`<div class="meta"><em>${escapeHtml(p.tips)}</em></div>`:''}${p.images && p.images.length?`<div class="thumbs">${imgs}</div>`:''}<div class="pop-actions">${dirBtn}${linkBtn}</div></div>`;
 }
@@ -386,6 +431,27 @@ function hideHoverCardSoon(){ if (hcTimer) clearTimeout(hcTimer); hcTimer = setT
 function download(filename, text){ const a = document.createElement('a'); a.setAttribute('href', 'data:text/plain;charset=utf-8,' + encodeURIComponent(text)); a.setAttribute('download', filename); a.style.display='none'; document.body.appendChild(a); a.click(); document.body.removeChild(a); }
 function fillMultiSelect(sel, values){ sel.innerHTML=''; values.forEach(v=> sel.appendChild(h('option',{value:v},v))); }
 function uniq(arr){ return [...new Set(arr)]; } function debounce(fn,ms){ let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a),ms); } } function escapeHtml(s){ return (s||'').replace(/[&<>"']/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#039;"}[c])); }
+
+// =====================
+// Tiny self-tests (non‑blocking)
+// =====================
+function runSelfTests(){
+  const results = [];
+  const near = (a,b,eps=1e-6)=> Math.abs(a-b) < eps;
+  try {
+    results.push((buildCSVUrl()? '✔':'✖') + ' CSV URL present');
+    results.push((near(toNum('19,4326'),19.4326)? '✔':'✖') + ' toNum converts decimal comma');
+    results.push((near(toNum('−99.1332'),-99.1332)? '✔':'✖') + ' toNum handles unicode minus');
+    results.push((near(toNum('19.4361° N'),19.4361)? '✔':'✖') + ' toNum strips symbols');
+    const pA = parseCoordsFromUrl('https://www.google.com/maps/place/Templo+Mayor/@19.4340,-99.1322,17z');
+    results.push((pA && near(pA[0],19.4340) && near(pA[1],-99.1322) ? '✔':'✖') + ' parseCoordsFromUrl @lat,lng');
+    const pB = parseCoordsFromUrl('https://www.google.com/maps/search/?api=1&query=19.4326,-99.1332');
+    results.push((pB && near(pB[0],19.4326) && near(pB[1],-99.1332) ? '✔':'✖') + ' parseCoordsFromUrl query=lat,lng');
+  } catch(e){ results.push('✖ self-tests threw: ' + e); }
+  const dbg = document.getElementById('debug');
+  dbg.textContent += (results.length? `\n\nSelf-tests:\n- ${results.join('\n- ')}`:'');
+  console.log('[Map self-tests]', results);
+}
 </script>
 </body>
 </html>
