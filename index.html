@@ -36,8 +36,18 @@
     .meta{font-size:12px;color:var(--muted)}
     .actions{display:flex;gap:6px;margin-top:6px}
     #map{width:100%;height:100%}
-    .pin{display:flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:50%;color:#fff;font-weight:700;box-shadow:0 2px 6px rgba(0,0,0,.25);border:2px solid #fff}
-    .pin.big{transform:scale(1.1)}
+    .pin{display:flex;align-items:center;justify-content:center;width:34px;height:34px;border-radius:50%;color:#fff;font-weight:700;box-shadow:0 2px 6px rgba(0,0,0,.25);border:2px solid #fff;position:relative;transition:transform .12s ease;font-size:18px}
+    .pin .emoji{line-height:1;font-size:16px}
+    .pin .badge{position:absolute;bottom:-6px;right:-6px;background:#0f172a;color:#fff;border:2px solid #fff;border-radius:999px;font-size:11px;padding:2px 6px;box-shadow:0 1px 4px rgba(0,0,0,.25)}
+    .pin:hover{transform:scale(1.1)}
+    .pin.big{transform:scale(1.15)}
+    body.largepins .pin{transform:scale(1.25)}
+    .leaflet-tooltip.tip{background:#111827;color:#fff;border:none;border-radius:8px;padding:6px 8px;font-size:12px;box-shadow:0 4px 14px rgba(0,0,0,.25)}
+    #hovercard{position:absolute;left:12px;bottom:12px;background:#fff;border:1px solid var(--border);border-radius:12px;box-shadow:0 10px 25px rgba(0,0,0,.18);padding:10px;width:280px;display:none;z-index:500}
+    #hovercard.show{display:block}
+    #hovercard .hc-title{font-weight:600;margin:0 0 6px}
+    #hovercard .hc-meta{font-size:12px;color:var(--muted);margin-bottom:6px}
+    #hovercard img{width:100%;height:160px;object-fit:cover;border-radius:8px}
     .popup{min-width:260px}
     .popup h3{margin:0 0 6px 0;font-size:16px}
     .chipsline{display:flex;gap:6px;margin:6px 0}
@@ -80,12 +90,13 @@
           <div id="debug" class="debug"></div>
         </div>
       </div>
+      <div class="field"><label>View</label><label style="display:flex;gap:8px;align-items:center"><input id="togglePins" type="checkbox" checked /> Large pins</label></div>
       <div class="counts" id="counts">Loading…</div>
     </div>
 
     <div class="list" id="list"></div>
   </aside>
-  <main><div id="map"></div></main>
+  <main><div id="map"></div><div id="hovercard" class="hc" aria-live="polite"></div></main>
 </div>
 
 <!-- Libraries -->
@@ -135,6 +146,8 @@ const REQUIRED = ['id','title','lat','lng'];
 
 const CATEGORY_COLORS = { ruin:'#8b5cf6', museum:'#10b981', market:'#84cc16', food:'#ef4444', bar_cafe:'#f59e0b', neighborhood:'#3b82f6', nature:'#22c55e', cenote:'#06b6d4', transit:'#9ca3af', stay:'#0ea5e9', tour:'#d946ef', event:'#f97316' };
 
+const CATEGORY_EMOJI = { ruin:'🏛️', museum:'🏺', market:'🛍️', food:'🌮', bar_cafe:'☕', neighborhood:'🏘️', nature:'🌿', cenote:'💧', transit:'🚌', stay:'🛏️', tour:'👣', event:'⭐', default:'📍' };
+
 const $ = sel => document.querySelector(sel);
 const h = (tag, attrs={}, children=[]) => { const el=document.createElement(tag); for(const k in attrs){ if(k==='class') el.className=attrs[k]; else if(k==='html') el.innerHTML=attrs[k]; else el.setAttribute(k, attrs[k]); } (Array.isArray(children)?children:[children]).filter(Boolean).forEach(c=> el.appendChild(typeof c==='string'?document.createTextNode(c):c)); return el };
 
@@ -150,6 +163,7 @@ function buildCSVUrl(){
 
 let RAW_ROWS = [];
 let FEATURES = [];
+let DATE_IDX = {};
 let MAP, CLUSTER, LIGHTBOX, FUSE;
 let STATS = { rows:0, plotted:0, skipped:0, swapped:0, fixedDec:0, headerWarnings:[], errors:[] };
 
@@ -173,7 +187,7 @@ async function init(){
   // Map
   MAP = L.map('map', {zoomControl:true}).setView(CONFIG.FALLBACK_CENTER, CONFIG.FALLBACK_ZOOM);
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '&copy; OpenStreetMap contributors' }).addTo(MAP);
-  CLUSTER = L.markerClusterGroup(); MAP.addLayer(CLUSTER);
+  CLUSTER = L.markerClusterGroup({ disableClusteringAtZoom:12, maxClusterRadius:60, spiderfyOnMaxZoom:true, showCoverageOnHover:false }); MAP.addLayer(CLUSTER);
   LIGHTBOX = GLightbox({selector:'.glightbox'});
 
   $('#reload').addEventListener('click', ()=> loadData());
@@ -183,6 +197,9 @@ async function init(){
   ;['#phase','#category','#status','#from','#to'].forEach(sel=> $(sel).addEventListener('change', ()=> render(FEATURES)));
 
   await loadData();
+
+  const pinToggle = document.querySelector('#togglePins');
+  if (pinToggle){ document.body.classList.toggle('largepins', pinToggle.checked); pinToggle.addEventListener('change', (e)=> document.body.classList.toggle('largepins', e.target.checked)); }
 }
 
 async function loadData(){
@@ -199,6 +216,11 @@ async function loadData(){
       Papa.parse(url, { download:true, header:true, skipEmptyLines:true, complete: r=>resolve(r), error: e=>reject(e) });
     });
     RAW_ROWS = res.data;
+    computeDateOrder(RAW_ROWS);
+  } catch(err){
+    STATS.errors.push('Failed to fetch/parse CSV: ' + err);
+    logDebug(); return;
+  }
   } catch(err){
     STATS.errors.push('Failed to fetch/parse CSV: ' + err);
     logDebug(); return;
@@ -240,6 +262,11 @@ function toNum(v){
 
 function inMexico(lat, lng){ return lat>=5 && lat<=35 && lng>=-120 && lng<=-80; }
 
+function computeDateOrder(rows){
+  const dates = [...new Set(rows.map(r => String((r.date||'').trim())).filter(Boolean))].sort();
+  DATE_IDX = {}; dates.forEach((d,i)=> DATE_IDX[d] = i+1);
+}
+
 function rowsToFeatures(rows){
   const feats = [];
   if (!rows || !rows.length){ return feats; }
@@ -279,9 +306,14 @@ function rowsToFeatures(rows){
 
     if (!f.properties.id || !f.properties.title){ STATS.skipped++; continue; }
 
-    const icon = L.divIcon({className:'', html:`<div class="pin ${isBig?'big':''}" style="background:${color}" title="${f.properties.title}">•</div>`});
+    const emoji = CATEGORY_EMOJI[cat] || CATEGORY_EMOJI.default;
+    const dayNo = DATE_IDX[String((r.date||'').trim())] || '';
+    const icon = L.divIcon({className:'', html:`<div class="pin ${isBig?'big':''}" style="background:${color}" title="${(r.title||'').trim()}"><span class="emoji">${emoji}</span>${dayNo?`<span class="badge">${dayNo}</span>`:''}</div>`});
     const marker = L.marker([lat,lng], {icon});
     marker.bindPopup(buildPopupHTML(f), {className:'popup'});
+    marker.bindTooltip((r.title||'').trim(), {direction:'top', offset:[0,-16], className:'tip', sticky:true});
+    marker.on('mouseover', ()=> renderHoverCard(f));
+    marker.on('mouseout', ()=> hideHoverCardSoon());
     CLUSTER.addLayer(marker);
     f._marker = marker;
     feats.push(f);
@@ -336,6 +368,20 @@ function doExport(){
   const geojson = {type:'FeatureCollection', features: arr.map(f=>({type:'Feature', geometry:f.geometry, properties:f.properties}))}; const kml = tokml(geojson, {name: 'title', description: 'short_desc'});
   download('trip.geojson', JSON.stringify(geojson,null,2)); download('trip.kml', kml);
 }
+
+// Hover card helpers
+const HC = () => document.getElementById('hovercard');
+let hcTimer = null;
+function renderHoverCard(f){
+  const p = f.properties;
+  const img = (p.images && p.images[0]) ? `<img src="${p.images[0]}" alt="">` : '';
+  const city = p.city ? escapeHtml(p.city) : '';
+  const date = p.date ? ` • ${escapeHtml(p.date)}` : '';
+  HC().innerHTML = `<div class="hc-title">${escapeHtml(p.title||'Untitled')}</div><div class="hc-meta">${city}${date}</div>${img}`;
+  HC().classList.add('show');
+  if (hcTimer) { clearTimeout(hcTimer); hcTimer = null; }
+}
+function hideHoverCardSoon(){ if (hcTimer) clearTimeout(hcTimer); hcTimer = setTimeout(()=> HC().classList.remove('show'), 250); }
 
 function download(filename, text){ const a = document.createElement('a'); a.setAttribute('href', 'data:text/plain;charset=utf-8,' + encodeURIComponent(text)); a.setAttribute('download', filename); a.style.display='none'; document.body.appendChild(a); a.click(); document.body.removeChild(a); }
 function fillMultiSelect(sel, values){ sel.innerHTML=''; values.forEach(v=> sel.appendChild(h('option',{value:v},v))); }
